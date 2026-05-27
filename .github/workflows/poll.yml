@@ -1,0 +1,62 @@
+name: Bugcrowd Scope Monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no Telegram messages)"
+        required: false
+        default: "false"
+      seed_only:
+        description: "Seed state without notifying"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bugcrowd-monitor
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run monitor
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
+          SEED_ONLY: ${{ github.event.inputs.seed_only == 'true' && '1' || '' }}
+          BC_UA: "bugcrowd-scope-monitor/1.0 (GH Actions; researcher: mrcslvknm)"
+        run: python bugcrowd_monitor.py
+
+      - name: Commit state changes
+        run: |
+          git config user.name  "bugcrowd-monitor-bot"
+          git config user.email "bugcrowd-monitor-bot@users.noreply.github.com"
+          [[ -f state.json ]]     && git add state.json     || true
+          [[ -f diff_log.jsonl ]] && git add diff_log.jsonl || true
+          if git diff --cached --quiet; then
+            echo "no state changes"
+          else
+            git commit -m "state: $(date -u +%Y-%m-%dT%H:%MZ) tick"
+            git push
+          fi
