@@ -197,7 +197,9 @@ def main() -> int:
 
     log.info("fresh updates: %d (after dedupe)", len(fresh))
 
-    state["seen"] = list(seen)[-SEEN_CAP:]
+    # Deterministic order: sort fingerprints so repeated saves produce identical
+    # JSON, suppressing heartbeat commits when nothing actually changed.
+    state["seen"] = sorted(seen)[-SEEN_CAP:]
 
     if SEED_ONLY:
         log.info("SEED_ONLY set — state baselined, no notifications")
