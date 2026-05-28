@@ -200,3 +200,4 @@
 {"ts": "2026-05-27T21:56:20.186523+00:00", "platform": "bc", "handle": "/engagements/emag-vdp-pro", "change": "added", "scope": "in", "target": "*.sameday.bg", "category": "URL", "asset_ts": "2026-03-05T22:34:18Z", "sent": true}
 {"ts": "2026-05-27T21:56:20.186523+00:00", "platform": "bc", "handle": "/engagements/emag-vdp-pro", "change": "added", "scope": "in", "target": "*.sameday.hu", "category": "URL", "asset_ts": "2026-03-05T22:34:18Z", "sent": true}
 {"ts": "2026-05-27T21:56:20.186523+00:00", "platform": "bc", "handle": "/engagements/emag-vdp-pro", "change": "added", "scope": "in", "target": "*.sameday.ro", "category": "URL", "asset_ts": "2026-03-05T22:34:18Z", "sent": true}
+{"ts": "2026-05-28T16:45:12.875131+00:00", "platform": "bc", "handle": "/engagements/unity", "change": "added", "scope": "in", "target": "https://services.unity.com", "category": "URL", "asset_ts": "2026-05-28T13:32:11Z", "sent": true}
