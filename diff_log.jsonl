@@ -480,3 +480,4 @@
 {"ts": "2026-06-13T11:31:09.673074+00:00", "platform": "bc", "handle": "/engagements/flourish", "change": "added", "scope": "in", "target": "https://xyzbmojn.net/", "category": "URL", "asset_ts": "2026-06-13T11:29:26Z", "sent": true}
 {"ts": "2026-06-13T11:31:09.673074+00:00", "platform": "bc", "handle": "/engagements/flourish", "change": "added", "scope": "in", "target": "https://flourish.studio/", "category": "URL", "asset_ts": "2026-06-13T11:29:26Z", "sent": true}
 {"ts": "2026-06-13T11:31:09.673074+00:00", "platform": "bc", "handle": "/engagements/flourish", "change": "added", "scope": "in", "target": "https://flo.uri.sh", "category": "URL", "asset_ts": "2026-06-13T11:29:26Z", "sent": true}
+{"ts": "2026-06-13T11:50:59.631504+00:00", "platform": "bc", "handle": "/engagements/izymes", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/izymes", "category": "PROGRAM", "asset_ts": "2026-06-13T11:41:44Z", "sent": true}
