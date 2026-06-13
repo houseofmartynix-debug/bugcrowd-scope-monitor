@@ -462,3 +462,4 @@
 {"ts": "2026-06-12T17:18:30.129862+00:00", "platform": "bc", "handle": "/engagements/dol-vdp", "change": "removed", "scope": "in", "target": "*.aiworkforcehub.gov", "category": "URL", "asset_ts": "2026-06-12T15:38:09Z", "sent": true}
 {"ts": "2026-06-12T17:18:30.129862+00:00", "platform": "bc", "handle": "/engagements/dol-vdp", "change": "added", "scope": "in", "target": "*.whatcanyoudocampaign.gov", "category": "WILDCARD", "asset_ts": "2026-06-12T14:38:12Z", "sent": true}
 {"ts": "2026-06-12T17:18:30.129862+00:00", "platform": "bc", "handle": "/engagements/dol-vdp", "change": "added", "scope": "in", "target": "*.aiworkforcehub.gov", "category": "WILDCARD", "asset_ts": "2026-06-12T14:38:12Z", "sent": true}
+{"ts": "2026-06-13T08:21:48.596605+00:00", "platform": "bc", "handle": "/engagements/izymes", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/izymes", "category": "PROGRAM", "asset_ts": "2026-06-13T07:41:43Z", "sent": true}
