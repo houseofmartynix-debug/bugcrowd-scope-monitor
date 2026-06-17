@@ -1876,3 +1876,4 @@
 {"ts": "2026-06-17T12:40:44.216310+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "openai api keys", "category": "URL", "asset_ts": "2026-06-17T12:31:05Z", "sent": true}
 {"ts": "2026-06-17T12:40:44.216310+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "third party targets", "category": "URL", "asset_ts": "2026-06-17T12:31:05Z", "sent": true}
 {"ts": "2026-06-17T12:40:44.216310+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "atlas", "category": "OTHER", "asset_ts": "2026-06-17T12:31:05Z", "sent": true}
+{"ts": "2026-06-17T12:50:45.654333+00:00", "platform": "bc", "handle": "/engagements/gapinc", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/gapinc", "category": "PROGRAM", "asset_ts": "2026-06-17T12:41:46Z", "sent": true}
