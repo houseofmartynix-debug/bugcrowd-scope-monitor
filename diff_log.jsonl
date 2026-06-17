@@ -1888,3 +1888,4 @@
 {"ts": "2026-06-17T14:50:44.235563+00:00", "platform": "bc", "handle": "/engagements/cibc-vdp", "change": "added", "scope": "in", "target": "cibc mellon", "category": "OTHER", "asset_ts": "2026-06-17T14:41:00Z", "sent": true}
 {"ts": "2026-06-17T14:50:44.235563+00:00", "platform": "bc", "handle": "/engagements/cibc-vdp", "change": "added", "scope": "in", "target": "cibc bank usa", "category": "OTHER", "asset_ts": "2026-06-17T14:41:00Z", "sent": true}
 {"ts": "2026-06-17T14:50:44.235563+00:00", "platform": "bc", "handle": "/engagements/cibc-vdp", "change": "added", "scope": "in", "target": "cibc firstcaribbean international bank (fcib)", "category": "OTHER", "asset_ts": "2026-06-17T14:41:00Z", "sent": true}
+{"ts": "2026-06-17T15:50:53.252720+00:00", "platform": "bc", "handle": "/engagements/gapinc", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/gapinc", "category": "PROGRAM", "asset_ts": "2026-06-17T15:41:46Z", "sent": true}
