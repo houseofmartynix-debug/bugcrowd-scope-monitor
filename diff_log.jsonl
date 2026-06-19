@@ -1971,3 +1971,4 @@
 {"ts": "2026-06-19T20:40:59.218384+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "other", "category": "OTHER", "asset_ts": "2026-06-19T20:30:58Z", "sent": true}
 {"ts": "2026-06-19T20:40:59.218384+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "openai api keys", "category": "URL", "asset_ts": "2026-06-19T20:30:58Z", "sent": true}
 {"ts": "2026-06-19T20:40:59.218384+00:00", "platform": "bc", "handle": "/engagements/openai", "change": "added", "scope": "in", "target": "third party targets", "category": "URL", "asset_ts": "2026-06-19T20:30:58Z", "sent": true}
+{"ts": "2026-06-19T20:51:00.388871+00:00", "platform": "bc", "handle": "/engagements/simplisafe", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/simplisafe", "category": "PROGRAM", "asset_ts": "2026-06-19T20:41:49Z", "sent": true}
