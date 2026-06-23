@@ -2126,3 +2126,4 @@
 {"ts": "2026-06-23T17:41:09.413776+00:00", "platform": "bc", "handle": "/engagements/hemi", "change": "added", "scope": "in", "target": "*.vetro.org", "category": "WILDCARD", "asset_ts": "2026-06-23T17:40:17Z", "sent": true}
 {"ts": "2026-06-23T17:41:09.413776+00:00", "platform": "bc", "handle": "/engagements/hemi", "change": "added", "scope": "in", "target": "https://api.vetro.org", "category": "URL", "asset_ts": "2026-06-23T17:40:17Z", "sent": true}
 {"ts": "2026-06-23T17:41:09.413776+00:00", "platform": "bc", "handle": "/engagements/hemi", "change": "added", "scope": "in", "target": "https://beta.vetro.org", "category": "URL", "asset_ts": "2026-06-23T17:40:17Z", "sent": true}
+{"ts": "2026-06-23T17:51:10.933735+00:00", "platform": "bc", "handle": "/engagements/mastercard", "change": "removed", "scope": null, "target": "https://bugcrowd.com/engagements/mastercard", "category": "PROGRAM", "asset_ts": "2026-06-23T17:41:48Z", "sent": true}
