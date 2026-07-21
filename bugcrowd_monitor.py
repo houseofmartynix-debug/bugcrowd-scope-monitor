@@ -21,6 +21,16 @@ Env:
   SEEN_CAP     — max fingerprints to retain in state (default 8000)
   DRY_RUN      — if set, don't send telegram messages (log instead)
   SEED_ONLY    — if set, snapshot fingerprints without sending anything
+  NOTIFY_TWEAKS— if set, also notify scope changes on ALREADY-KNOWN programs
+                 (the old firehose). Default OFF: only NEW PROGRAM LAUNCHES notify.
+  HANDLES_CAP  — max program handles to retain in state (default 20000)
+
+New-program-launch detection: state tracks `seen_handles` (every program handle
+ever observed). A fresh update whose handle is NOT in that set = a newly-launched
+engagement → highlighted "NEW PROGRAM" message. Changes on known handles are muted
+by default (fresh/pre-dupe programs are the high-EV signal). On the first run after
+this upgrade, `seen_handles` is baselined from diff_log.jsonl so existing programs
+do not misfire as new.
 """
 from __future__ import annotations
 
@@ -38,13 +48,26 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bc-monitor")
 
+def _envflag(name: str, default: bool = False) -> bool:
+    """Tri-state env flag: unset/empty → default; 0/false/no/off → False; else True.
+    (The workflow passes '' on plain cron runs, which must fall back to the default.)"""
+    v = os.getenv(name)
+    if v is None or v.strip() == "":
+        return default
+    return v.strip().lower() not in ("0", "false", "no", "off")
+
+
 STATE_FILE = Path(os.getenv("STATE_FILE", "state.json"))
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "diff_log.jsonl"))
 LOOKBACK   = os.getenv("LOOKBACK", "2d")
 MAX_NOTIFY = int(os.getenv("MAX_NOTIFY", "50"))
 SEEN_CAP   = int(os.getenv("SEEN_CAP", "20000"))
-DRY_RUN    = bool(os.getenv("DRY_RUN"))
-SEED_ONLY  = bool(os.getenv("SEED_ONLY"))
+HANDLES_CAP = int(os.getenv("HANDLES_CAP", "20000"))
+DRY_RUN    = _envflag("DRY_RUN")
+SEED_ONLY  = _envflag("SEED_ONLY")
+# Default ON: notify scope changes on already-known programs too (not just launches).
+# Mute with NOTIFY_TWEAKS=0 (env) or the notify_tweaks=false workflow_dispatch input.
+NOTIFY_TWEAKS = _envflag("NOTIFY_TWEAKS", default=True)
 
 BC_UA = os.getenv("BC_UA", "bugcrowd-scope-monitor/1.0 (GH Actions; researcher: mrcslvknm)")
 BBSCOPE_API = "https://bbscope.com/api/v1"
@@ -130,28 +153,171 @@ def esc(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def fmt_update(u: dict) -> str:
-    icon = {"added": "+", "removed": "-", "modified": "~"}.get(u.get("change_type"), "*")
-    target = esc(u.get("target", ""))
-    cat = esc(u.get("category", "") or "?")
-    scope = u.get("scope_type", "in")
-    return f"<code>{icon}</code> <code>{target}</code> [{cat}/{scope}]"
+# Human labels + icons per bbscope scope category, so a message reads at a glance.
+CAT_LABEL = {
+    "URL": "🌐 URL", "WILDCARD": "🌟 Wildcard", "API": "🔌 API",
+    "ANDROID": "🤖 Android", "IOS": "🍎 iOS", "AI": "🧠 AI/LLM",
+    "CIDR": "📡 CIDR/IP", "HARDWARE": "🔧 Hardware", "OTHER": "📦 Lainnya",
+    "PROGRAM": "📄 Program",
+}
+CAT_ORDER = ["WILDCARD", "URL", "API", "AI", "ANDROID", "IOS", "CIDR", "HARDWARE", "OTHER", "PROGRAM"]
+TARGETS_PER_CAT = 60  # generous cap so a message stays "lengkap" without runaway length
 
 
-def fmt_group(handle: str, updates: list[dict]) -> str:
-    title = esc(handle.lstrip("/").replace("engagements/", ""))
-    n = len(updates)
-    head = f"<b>Bugcrowd</b> · <b>{title}</b> · {n} change{'s' if n != 1 else ''}"
-    lines = [fmt_update(u) for u in updates[:25]]
-    if n > 25:
-        lines.append(f"… +{n - 25} more (see diff_log.jsonl)")
-    url = f"https://bugcrowd.com{esc(handle)}"
-    return head + "\n" + "\n".join(lines) + f"\n<a href=\"{url}\">view program</a>"
+def cat_label(cat: str) -> str:
+    c = (cat or "OTHER").upper()
+    return CAT_LABEL.get(c, f"📦 {esc(cat or 'Lainnya')}")
+
+
+def prog_title(handle: str) -> str:
+    """`/engagements/canva` or `https://bugcrowd.com/engagements/x` → `canva` / `x`."""
+    src = handle or ""
+    if "engagements/" in src:
+        src = src.split("engagements/", 1)[1]
+    src = src.strip("/").split("/")[0]
+    return esc(src or (handle or "?"))
+
+
+def prog_url(handle: str, program_url: str = "") -> str:
+    """Clean https link. Note: program_removed rows double the scheme in program_url
+    (`https://bugcrowd.com/https://bugcrowd.com/...`) but their `handle` is already a
+    clean absolute URL, so prefer handle when it is absolute."""
+    h = handle or ""
+    if h.startswith("http"):
+        return esc(h)
+    if program_url and program_url.startswith("http") and program_url.count("http") == 1:
+        return esc(program_url)
+    if not h.startswith("/"):
+        h = "/" + h
+    return "https://bugcrowd.com" + esc(h)
+
+
+def _fmt_ts(updates: list[dict]) -> str:
+    tss = [u.get("timestamp") for u in updates if u.get("timestamp")]
+    if not tss:
+        return ""
+    t = max(tss)
+    try:
+        dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:
+        return esc(t)
+
+
+def _target_lines(updates: list[dict]) -> list[str]:
+    """Group targets by category (largest first) and render one bullet per target."""
+    by: dict[str, list[dict]] = {}
+    for u in updates:
+        by.setdefault((u.get("category") or "OTHER").upper(), []).append(u)
+    order = sorted(by, key=lambda c: (CAT_ORDER.index(c) if c in CAT_ORDER else 99, c))
+    lines: list[str] = []
+    for cat in order:
+        items = by[cat]
+        lines.append(f"{cat_label(cat)} ({len(items)})")
+        for u in items[:TARGETS_PER_CAT]:
+            lines.append(f"  • <code>{esc(u.get('target', ''))}</code>")
+        if len(items) > TARGETS_PER_CAT:
+            lines.append(f"  … +{len(items) - TARGETS_PER_CAT} lagi")
+    return lines
+
+
+def fmt_new_program(handle: str, updates: list[dict]) -> str:
+    """Detailed alert for a newly-launched engagement (handle never seen before)."""
+    title = prog_title(handle)
+    url = prog_url(handle, (updates[0].get("program_url") if updates else "") or "")
+    ins = [u for u in updates
+           if u.get("scope_type", "in") != "out" and u.get("change_type") != "removed"
+           and (u.get("category") or "").upper() != "PROGRAM"]
+    outs = [u for u in updates if u.get("scope_type") == "out"]
+
+    parts = ["🚀 <b>PROGRAM BUGCROWD BARU</b>", f"<b>{title}</b>", "",
+             "Program baru muncul di Bugcrowd — surface fresh, kemungkinan besar belum ada yang nge-dupe."]
+    if ins:
+        parts += ["", f"📍 <b>In-scope</b> ({len(ins)} target):"]
+        parts += _target_lines(ins)
+    if outs:
+        parts += ["", f"⛔ <b>Out-of-scope</b> ({len(outs)}):"]
+        parts += _target_lines(outs)
+    parts += ["", f"🔗 <a href=\"{url}\">Buka program</a>"]
+    ts = _fmt_ts(updates)
+    if ts:
+        parts.append(f"🕐 {ts}")
+    return "\n".join(parts)
+
+
+def fmt_scope_update(handle: str, updates: list[dict]) -> str:
+    """Detailed alert for a scope change on an already-known program."""
+    title = prog_title(handle)
+    url = prog_url(handle, (updates[0].get("program_url") if updates else "") or "")
+
+    def is_prog(u): return (u.get("category") or "").upper() == "PROGRAM"
+    added    = [u for u in updates if u.get("change_type") == "added" and not is_prog(u)]
+    removed  = [u for u in updates if u.get("change_type") == "removed" and not is_prog(u)]
+    modified = [u for u in updates if u.get("change_type") == "modified" and not is_prog(u)]
+    delisted = any(is_prog(u) and u.get("change_type") == "removed" for u in updates)
+
+    # Pure program delist (no asset-level movement) — short, distinct message.
+    if delisted and not (added or removed or modified):
+        return "\n".join([
+            "🗑️ <b>PROGRAM DI-DELIST</b>", f"<b>{title}</b>", "",
+            "Program ini dihapus dari Bugcrowd (tidak lagi in-scope).",
+            "", f"🔗 <a href=\"{url}\">Detail</a>",
+        ])
+
+    parts = [f"🔔 <b>UPDATE SCOPE</b> · <b>{title}</b>"]
+    if added:
+        ins  = [u for u in added if u.get("scope_type", "in") != "out"]
+        outs = [u for u in added if u.get("scope_type") == "out"]
+        parts += ["", f"➕ <b>Ditambahkan</b> ({len(added)} target):"]
+        if ins:
+            parts += _target_lines(ins)
+        if outs:
+            parts.append("  <i>— sebagian out-of-scope:</i>")
+            parts += _target_lines(outs)
+    if removed:
+        parts += ["", f"➖ <b>Dihapus</b> ({len(removed)} target):"]
+        parts += _target_lines(removed)
+    if modified:
+        parts += ["", f"✏️ <b>Dimodifikasi</b> ({len(modified)} target):"]
+        parts += _target_lines(modified)
+    if delisted:
+        parts += ["", "🗑️ <i>Program juga ditandai delist.</i>"]
+    parts += ["", f"🔗 <a href=\"{url}\">Buka program</a>"]
+    ts = _fmt_ts(updates)
+    if ts:
+        parts.append(f"🕐 {ts}")
+    return "\n".join(parts)
+
+
+def baseline_handles_from_audit() -> set[str]:
+    """Reconstruct every program handle ever observed from the audit log, so the
+    first run after the new-program upgrade does not misfire existing programs."""
+    handles: set[str] = set()
+    if not AUDIT_FILE.exists():
+        return handles
+    try:
+        with AUDIT_FILE.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    h = json.loads(line).get("handle")
+                except ValueError:
+                    continue
+                if h:
+                    handles.add(h)
+    except Exception as e:
+        log.warning("could not baseline handles from audit: %s", e)
+    return handles
+
+
+TG_LIMIT = 3900  # keep under Telegram's 4096 hard cap with headroom for entities
 
 
 def tg_send(text: str, token: str, chat_id: str) -> bool:
     if DRY_RUN:
-        log.info("DRY_RUN: would send %d chars: %s", len(text), text[:120])
+        log.info("DRY_RUN: would send %d chars:\n%s", len(text), text)
         return True
     try:
         r = requests.post(
@@ -166,6 +332,36 @@ def tg_send(text: str, token: str, chat_id: str) -> bool:
     except requests.RequestException as e:
         log.warning("tg send error: %s", e)
     return False
+
+
+def tg_send_long(text: str, token: str, chat_id: str) -> bool:
+    """Send a detailed message in full, splitting on line boundaries when it exceeds
+    Telegram's per-message limit (so nothing is silently truncated)."""
+    chunks: list[str] = []
+    cur = ""
+    for line in text.split("\n"):
+        while len(line) > TG_LIMIT:  # pathological single long line — hard-cut
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:TG_LIMIT])
+            line = line[TG_LIMIT:]
+        if cur and len(cur) + 1 + len(line) > TG_LIMIT:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = line if not cur else cur + "\n" + line
+    if cur:
+        chunks.append(cur)
+
+    ok_all = True
+    for i, ch in enumerate(chunks):
+        if len(chunks) > 1:
+            ch = f"<i>({i + 1}/{len(chunks)})</i>\n{ch}"
+        ok_all = tg_send(ch, token, chat_id) and ok_all
+        if i < len(chunks) - 1:
+            time.sleep(0.4)
+    return ok_all
 
 
 def append_audit(rows: list[dict]) -> None:
@@ -184,6 +380,17 @@ def main() -> int:
     state = load_state()
     seen = set(state.get("seen", []))
 
+    # seen_handles: every program handle ever observed. Absent = first run after the
+    # new-program upgrade → baseline from audit log so existing programs don't misfire.
+    if "seen_handles" in state:
+        seen_handles = set(state.get("seen_handles", []))
+        baselined = False
+    else:
+        seen_handles = baseline_handles_from_audit()
+        baselined = True
+        log.info("baselined %d handles from audit log (first new-program run)",
+                 len(seen_handles))
+
     log.info("fetching updates (since=%s, seed_only=%s)", LOOKBACK, SEED_ONLY)
     ups = bb_fetch(since=LOOKBACK)
     log.info("fetched %d updates from bbscope.com", len(ups))
@@ -197,12 +404,29 @@ def main() -> int:
 
     log.info("fresh updates: %d (after dedupe)", len(fresh))
 
-    # Deterministic order: sort fingerprints so repeated saves produce identical
-    # JSON, suppressing heartbeat commits when nothing actually changed.
-    state["seen"] = sorted(seen)[-SEEN_CAP:]
+    # Split fresh updates: NEW PROGRAM (handle never seen) vs tweak (known handle).
+    new_by_handle: dict[str, list[dict]] = {}
+    tweak_by_handle: dict[str, list[dict]] = {}
+    for u in fresh:
+        h = u.get("handle", "?")
+        if h in seen_handles:
+            tweak_by_handle.setdefault(h, []).append(u)
+        else:
+            new_by_handle.setdefault(h, []).append(u)
+    # Every handle in this run is now known for future runs.
+    seen_handles.update(new_by_handle.keys())
+    seen_handles.update(tweak_by_handle.keys())
 
-    if SEED_ONLY:
-        log.info("SEED_ONLY set — state baselined, no notifications")
+    log.info("fresh: %d new-program handle(s), %d tweaked handle(s) (notify_tweaks=%s)",
+             len(new_by_handle), len(tweak_by_handle), NOTIFY_TWEAKS)
+
+    # Deterministic order so repeated saves produce identical JSON (heartbeat suppression).
+    state["seen"] = sorted(seen)[-SEEN_CAP:]
+    state["seen_handles"] = sorted(seen_handles)[-HANDLES_CAP:]
+
+    if SEED_ONLY or baselined:
+        why = "SEED_ONLY" if SEED_ONLY else "first new-program baseline"
+        log.info("%s — state saved, no notifications this run", why)
         save_state(state)
         return 0
 
@@ -210,21 +434,30 @@ def main() -> int:
         save_state(state)
         return 0
 
-    # Group fresh updates per program handle
-    by_handle: dict[str, list[dict]] = {}
-    for u in fresh:
-        by_handle.setdefault(u.get("handle", "?"), []).append(u)
+    # Notify: NEW PROGRAMS always; tweaks only when NOTIFY_TWEAKS is set.
+    notify_plan: list[tuple[str, str, list[dict]]] = [
+        ("new", h, g) for h, g in new_by_handle.items()
+    ]
+    if NOTIFY_TWEAKS:
+        notify_plan += [("tweak", h, g) for h, g in tweak_by_handle.items()]
+    # New programs first (highest EV).
+    notify_plan.sort(key=lambda x: 0 if x[0] == "new" else 1)
 
     ts = datetime.now(timezone.utc).isoformat()
     audit_rows: list[dict] = []
     sent = 0
-    for handle, group in by_handle.items():
+    for kind, handle, group in notify_plan:
         if sent >= MAX_NOTIFY:
-            log.warning("hit MAX_NOTIFY=%d, %d handles remaining unsent", MAX_NOTIFY,
-                        len(by_handle) - sent)
+            log.warning("hit MAX_NOTIFY=%d, remaining handles unsent", MAX_NOTIFY)
             break
-        msg = fmt_group(handle, group)
-        ok = tg_send(msg, tg_token, tg_chat_id)
+        # An unseen handle whose only change is a removal/delist is NOT a launch —
+        # only treat it as "new program" when it actually adds a real (non-PROGRAM) asset.
+        real_new = kind == "new" and any(
+            u.get("change_type") == "added" and (u.get("category") or "").upper() != "PROGRAM"
+            for u in group
+        )
+        msg = fmt_new_program(handle, group) if real_new else fmt_scope_update(handle, group)
+        ok = tg_send_long(msg, tg_token, tg_chat_id)
         if ok:
             sent += 1
         for u in group:
@@ -232,6 +465,7 @@ def main() -> int:
                 "ts": ts,
                 "platform": "bc",
                 "handle": handle,
+                "kind": kind,
                 "change": u.get("change_type"),
                 "scope": u.get("scope_type"),
                 "target": u.get("target"),
@@ -241,10 +475,23 @@ def main() -> int:
             })
         time.sleep(0.35)  # gentle Telegram pacing
 
+    # Audit ALL fresh updates (incl. muted tweaks) so nothing is silently lost.
+    audited_handles = {r["handle"] for r in audit_rows}
+    for h, g in tweak_by_handle.items():
+        if h in audited_handles:
+            continue
+        for u in g:
+            audit_rows.append({
+                "ts": ts, "platform": "bc", "handle": h, "kind": "tweak-muted",
+                "change": u.get("change_type"), "scope": u.get("scope_type"),
+                "target": u.get("target"), "category": u.get("category"),
+                "asset_ts": u.get("timestamp"), "sent": False,
+            })
+
     if audit_rows:
         append_audit(audit_rows)
-    log.info("sent %d/%d program-grouped messages (%d updates audited)",
-             sent, len(by_handle), len(audit_rows))
+    log.info("sent %d message(s); %d updates audited (%d new-program handles)",
+             sent, len(audit_rows), len(new_by_handle))
 
     save_state(state)
     return 0
