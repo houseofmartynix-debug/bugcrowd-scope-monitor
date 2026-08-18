@@ -3,3 +3,4 @@ token.txt
 __pycache__/
 .env
 .venv/
+diff_log.jsonl

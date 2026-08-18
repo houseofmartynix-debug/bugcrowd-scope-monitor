@@ -370,6 +370,25 @@ def append_audit(rows: list[dict]) -> None:
             f.write(json.dumps(r) + "\n")
 
 
+AUDIT_MAX_MB = 50  # rotate when audit log exceeds this size
+
+
+def rotate_audit() -> None:
+    """Trim diff_log.jsonl to its last AUDIT_MAX_LINES when it exceeds AUDIT_MAX_MB."""
+    if not AUDIT_FILE.exists():
+        return
+    size_mb = AUDIT_FILE.stat().st_size / (1024 * 1024)
+    if size_mb < AUDIT_MAX_MB:
+        return
+    log.info("diff_log.jsonl is %.1f MB (>%d MB), rotating", size_mb, AUDIT_MAX_MB)
+    lines = AUDIT_FILE.read_text().splitlines()
+    # keep last 50% of lines
+    keep = lines[len(lines) // 2:]
+    AUDIT_FILE.write_text("\n".join(keep) + "\n")
+    log.info("rotated diff_log.jsonl to %d lines (%.1f MB)",
+             len(keep), AUDIT_FILE.stat().st_size / (1024 * 1024))
+
+
 def main() -> int:
     tg_token   = os.environ.get("TG_TOKEN", "")
     tg_chat_id = os.environ.get("TG_CHAT_ID", "")
@@ -494,6 +513,7 @@ def main() -> int:
              sent, len(audit_rows), len(new_by_handle))
 
     save_state(state)
+    rotate_audit()
     return 0
 
 

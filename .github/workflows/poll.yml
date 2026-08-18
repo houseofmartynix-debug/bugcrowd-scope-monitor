@@ -52,8 +52,8 @@ jobs:
         run: |
           git config user.name  "bugcrowd-monitor-bot"
           git config user.email "bugcrowd-monitor-bot@users.noreply.github.com"
-          [[ -f state.json ]]     && git add state.json     || true
-          [[ -f diff_log.jsonl ]] && git add diff_log.jsonl || true
+          git rm --cached diff_log.jsonl 2>/dev/null || true
+          [[ -f state.json ]] && git add state.json || true
           if git diff --cached --quiet; then
             echo "no state changes"
           else
